@@ -1,27 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  increment, 
-  serverTimestamp, 
-  updateDoc, 
-  getDocs,
-  query,
-  orderBy
-} from 'firebase/firestore';
-import { 
-  Database, 
-  HardDrive, 
-  Server, 
-  Activity, 
-  FileText, 
-  Info, 
-  CheckCircle, 
+import {
+  Database,
+  HardDrive,
+  Server,
+  Activity,
+  FileText,
+  Info,
+  CheckCircle,
   AlertTriangle,
   RefreshCw,
   Cloud,
@@ -35,50 +20,9 @@ import {
   PlayCircle
 } from 'lucide-react';
 
-// --- Firebase Configuration & Initialization ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-// --- Simulated Cloud Services Paths ---
-const PATHS = {
-  OBS_DATA: 'simulated_obs_content_v2', // Use v2 to avoid conflicts with old data structure
-  REDIS_CACHE: 'simulated_redis_stats'
-};
-
 // --- Main Application Component ---
 export default function CloudDemoSite() {
-  const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('home');
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Authentication Setup
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // --- Render Logic ---
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
-        <div className="flex flex-col items-center gap-4">
-          <RefreshCw className="animate-spin w-8 h-8 text-blue-400" />
-          <p>正在连接云资源演示环境...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col">
@@ -99,8 +43,8 @@ export default function CloudDemoSite() {
 
       {/* Main Content Area */}
       <main className="flex-grow container mx-auto px-4 py-8">
-        {activeTab === 'home' && <DashboardPage user={user} appId={appId} />}
-        {activeTab === 'learning' && <LearningPage user={user} appId={appId} />}
+        {activeTab === 'home' && <DashboardPage />}
+        {activeTab === 'learning' && <LearningPage />}
         {activeTab === 'about' && <AboutPage />}
       </main>
 
@@ -133,31 +77,27 @@ const NavButton = ({ active, onClick, icon, label }) => (
 // --- Page Components ---
 
 // 1. Dashboard Page (Simulates Redis Cache Interaction)
-const DashboardPage = ({ user, appId }) => {
+const DashboardPage = () => {
   const [stats, setStats] = useState({ totalVisits: 0, lastVisit: '获取中...' });
   const [loading, setLoading] = useState(true);
 
-  // 初始化访问统计
+  // 初始化访问统计 - 使用 localStorage 模拟
   useEffect(() => {
-    if (!user) return;
-
-    const statsRef = doc(db, 'artifacts', appId, 'public', 'data', PATHS.REDIS_CACHE, 'global_stats');
-
-    const updateAndFetchStats = async () => {
+    const updateAndFetchStats = () => {
       try {
-        await setDoc(statsRef, {
-          totalVisits: increment(1),
-          lastVisitTime: serverTimestamp()
-        }, { merge: true });
+        // 从 localStorage 获取当前访问次数
+        const currentVisits = parseInt(localStorage.getItem('totalVisits') || '0');
+        const newVisits = currentVisits + 1;
 
-        const snapshot = await getDoc(statsRef);
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          setStats({
-            totalVisits: data.totalVisits || 1,
-            lastVisit: data.lastVisitTime?.toDate().toLocaleString() || new Date().toLocaleString()
-          });
-        }
+        // 更新访问次数
+        localStorage.setItem('totalVisits', newVisits.toString());
+        localStorage.setItem('lastVisitTime', new Date().toISOString());
+
+        // 更新状态
+        setStats({
+          totalVisits: newVisits,
+          lastVisit: new Date().toLocaleString('zh-CN')
+        });
       } catch (error) {
         console.error("Error updating stats:", error);
       } finally {
@@ -165,8 +105,9 @@ const DashboardPage = ({ user, appId }) => {
       }
     };
 
-    updateAndFetchStats();
-  }, [user, appId]);
+    // 模拟网络延迟
+    setTimeout(updateAndFetchStats, 500);
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
@@ -225,7 +166,7 @@ const DashboardPage = ({ user, appId }) => {
 };
 
 // 2. Learning Page (Enhanced: Richer Content & Filters)
-const LearningPage = ({ user, appId }) => {
+const LearningPage = () => {
   const [content, setContent] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -233,32 +174,63 @@ const LearningPage = ({ user, appId }) => {
   const [expandedId, setExpandedId] = useState(null);
   const [fetchingDetail, setFetchingDetail] = useState(false);
 
-  // 初始化内容
+  // 初始化内容 - 使用本地数据
   useEffect(() => {
-    if (!user) return;
-
-    const fetchContent = async () => {
+    const fetchContent = () => {
       setLoading(true);
-      const contentCollection = collection(db, 'artifacts', appId, 'public', 'data', PATHS.OBS_DATA);
-      
-      try {
-        const snapshot = await getDocs(contentCollection);
-        if (snapshot.empty) {
-          await seedInitialData(contentCollection);
-          const newSnapshot = await getDocs(contentCollection);
-          setContent(newSnapshot.docs.map(d => d.data()));
-        } else {
-          setContent(snapshot.docs.map(d => d.data()));
-        }
-      } catch (error) {
-        console.error("Fetch error:", error);
-      } finally {
+
+      // 模拟网络延迟
+      setTimeout(() => {
+        const initialData = [
+          {
+            id: 1,
+            type: 'article',
+            title: "分布式缓存 Redis 核心原理",
+            summary: "深入剖析 Redis 的数据结构、持久化机制（RDB/AOF）以及在微服务架构中的应用场景。",
+            content: "Redis (Remote Dictionary Server) 是一个开源的、使用 C 语言编写的、支持网络、可基于内存亦可持久化的日志型、Key-Value 数据库。\n\n关键特性：\n1. 速度快：基于内存操作，QPS 可达 10w+。\n2. 数据类型丰富：String, List, Set, ZSet, Hash。\n3. 原子性：所有操作都是原子性的。",
+            date: "2023-10-24",
+            source: "obs://bucket-learning/docs/redis-core.md",
+            tags: ["Redis", "Backend", "Architecture"]
+          },
+          {
+            id: 2,
+            type: 'code',
+            title: "Node.js 上传文件到 OBS 示例代码",
+            summary: "一段用于演示如何在 Node.js 环境中使用 SDK 将本地文件上传至对象存储桶的代码片段。",
+            content: `const ObsClient = require('esdk-obs-nodejs');\n\nconst obsClient = new ObsClient({\n  access_key_id: '***',\n  secret_access_key: '***',\n  server: 'https://obs.region.mycloud.com'\n});\n\nawait obsClient.putObject({\n  Bucket: 'my-bucket',\n  Key: 'images/logo.png',\n  SourceFile: './logo.png'\n});\n// 上传成功`,
+            date: "2023-10-25",
+            source: "obs://bucket-code/snippets/upload-demo.js",
+            tags: ["Node.js", "SDK", "Storage"]
+          },
+          {
+            id: 3,
+            type: 'video',
+            title: "React Hooks 最佳实践 (视频演示)",
+            summary: "视频教程：如何正确使用 useEffect 处理副作用，避免常见的闭包陷阱和无限循环问题。",
+            content: "Video resource placeholder.\nDuration: 15:30\nResolution: 1080p\nTranscoding status: Completed",
+            date: "2023-10-26",
+            source: "obs://bucket-media/videos/react-hooks.mp4",
+            tags: ["React", "Frontend", "Video"]
+          },
+          {
+            id: 4,
+            type: 'article',
+            title: "Serverless 无服务器架构入门",
+            summary: "Function as a Service (FaaS) 的概念介绍，以及如何利用云函数构建低成本的 API 服务。",
+            content: "Serverless 并不意味着没有服务器，而是开发者不再需要关心服务器的管理和运维。\n\n优势：\n- 按量付费，成本低\n- 自动扩缩容\n- 快速迭代上线",
+            date: "2023-10-28",
+            source: "obs://bucket-learning/docs/serverless.json",
+            tags: ["Cloud", "Serverless"]
+          }
+        ];
+
+        setContent(initialData);
         setLoading(false);
-      }
+      }, 500);
     };
 
     fetchContent();
-  }, [user, appId]);
+  }, []);
 
   // 模拟从 OBS 加载大文件详情
   const toggleExpand = (id) => {
@@ -271,55 +243,6 @@ const LearningPage = ({ user, appId }) => {
       setTimeout(() => {
         setFetchingDetail(false);
       }, 800);
-    }
-  };
-
-  const seedInitialData = async (collRef) => {
-    const initialData = [
-      {
-        id: 1,
-        type: 'article',
-        title: "分布式缓存 Redis 核心原理",
-        summary: "深入剖析 Redis 的数据结构、持久化机制（RDB/AOF）以及在微服务架构中的应用场景。",
-        content: "Redis (Remote Dictionary Server) 是一个开源的、使用 C 语言编写的、支持网络、可基于内存亦可持久化的日志型、Key-Value 数据库。\n\n关键特性：\n1. 速度快：基于内存操作，QPS 可达 10w+。\n2. 数据类型丰富：String, List, Set, ZSet, Hash。\n3. 原子性：所有操作都是原子性的。",
-        date: "2023-10-24",
-        source: "obs://bucket-learning/docs/redis-core.md",
-        tags: ["Redis", "Backend", "Architecture"]
-      },
-      {
-        id: 2,
-        type: 'code',
-        title: "Node.js 上传文件到 OBS 示例代码",
-        summary: "一段用于演示如何在 Node.js 环境中使用 SDK 将本地文件上传至对象存储桶的代码片段。",
-        content: `const ObsClient = require('esdk-obs-nodejs');\n\nconst obsClient = new ObsClient({\n  access_key_id: '***',\n  secret_access_key: '***',\n  server: 'https://obs.region.mycloud.com'\n});\n\nawait obsClient.putObject({\n  Bucket: 'my-bucket',\n  Key: 'images/logo.png',\n  SourceFile: './logo.png'\n});\n// 上传成功`,
-        date: "2023-10-25",
-        source: "obs://bucket-code/snippets/upload-demo.js",
-        tags: ["Node.js", "SDK", "Storage"]
-      },
-      {
-        id: 3,
-        type: 'video',
-        title: "React Hooks 最佳实践 (视频演示)",
-        summary: "视频教程：如何正确使用 useEffect 处理副作用，避免常见的闭包陷阱和无限循环问题。",
-        content: "Video resource placeholder.\nDuration: 15:30\nResolution: 1080p\nTranscoding status: Completed",
-        date: "2023-10-26",
-        source: "obs://bucket-media/videos/react-hooks.mp4",
-        tags: ["React", "Frontend", "Video"]
-      },
-      {
-        id: 4,
-        type: 'article',
-        title: "Serverless 无服务器架构入门",
-        summary: "Function as a Service (FaaS) 的概念介绍，以及如何利用云函数构建低成本的 API 服务。",
-        content: "Serverless 并不意味着没有服务器，而是开发者不再需要关心服务器的管理和运维。\n\n优势：\n- 按量付费，成本低\n- 自动扩缩容\n- 快速迭代上线",
-        date: "2023-10-28",
-        source: "obs://bucket-learning/docs/serverless.json",
-        tags: ["Cloud", "Serverless"]
-      }
-    ];
-
-    for (const item of initialData) {
-      await setDoc(doc(collRef, `doc_${item.id}`), item);
     }
   };
 
